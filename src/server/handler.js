@@ -1,52 +1,58 @@
 const predictClassification = require('../services/inferenceService');
 const crypto = require('crypto');
-const storeData = require('../services/storeData');
-
+const fireStore = require('../services/storeData');
+const { data } = require('@tensorflow/tfjs-node');
+ 
 async function postPredictHandler(request, h) {
-    const { image } = request.payload;
-    const { model } = request.server.app;
+  const { image } = request.payload;
+  const { model } = request.server.app;
+  
+  const {   label, suggestion } = await predictClassification(model, image);
+  const id = crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+ 
+  const data = {
+    "id": id,
+    "result": label,
+    "suggestion": suggestion,
+    "createdAt": createdAt
+  }
 
-    try {
-        // Perform prediction
-        const { confidenceScore, label,  suggestion } = await predictClassification(model, image);
-
-        // Generate ID and timestamp
-        const id = crypto.randomUUID();
-        const createdAt = new Date().toISOString();
-
-        // Build the response data
-        const responseData = {
-            id,
-            result: label,
-            suggestion: label === 'Cancer' ? 'Segera periksa ke dokter!' : 'Penyakit kanker tidak terdeteksi.',
-            createdAt,
-        };
-
-        // Validate Firestore data
-        const firestoreData = {
-            ...responseData,
-        };
-
-        // Store data in Firestore
-        await storeData(id, firestoreData);
-
-        // Return success response
-        const response = h.response({
-            status: 'success',
-            message: 'Model is predicted successfully',
-            data: responseData,
-        });
-        response.code(201);
-        return response;
-    } catch (error) {
-        console.error('Error storing data:', error);
-
-        // Return error response
-        return h.response({
-            status: 'fail',
-            message: 'Failed to store prediction data.',
-        }).code(500);
-    }
+  await fireStore.storeData(id, data);
+  const response = h.response({
+    status: 'success',
+    message: 'Model is predicted successfully',
+    data
+  })
+  response.code(201);
+  return response;
 }
 
-module.exports = postPredictHandler;
+async function getAllPredict() {
+  try {
+    const allPredict = await fireStore.getAllData();
+
+    const data = allPredict.map(predict => ({
+      id: predict.id,
+      history: {
+          result: predict.result,
+          createdAt: predict.createdAt,
+          suggestion: predict.suggestion,
+          id: predict.id,
+      },
+    }));
+
+    return {
+      status: 'success',
+      data
+    }
+  } catch (error) {
+    return error.message;
+  }
+
+}
+ 
+module.exports = {
+  postPredictHandler, 
+  getAllPredict
+}
