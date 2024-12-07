@@ -1,45 +1,49 @@
 const tf = require('@tensorflow/tfjs-node');
 const InputError = require('../exceptions/InputError');
- 
+
 async function predictClassification(model, image) {
     try {
+        // Decode image and preprocess to match model input requirements
         const tensor = tf.node
             .decodeJpeg(image)
             .resizeNearestNeighbor([224, 224])
             .expandDims()
-            .toFloat()
- 
-        const classes = ['Melanocytic nevus', 'Squamous cell carcinoma', 'Vascular lesion'];
- 
+            .toFloat();
+
+        // Validate input shape
+        if (tensor.shape[1] !== 224 || tensor.shape[2] !== 224 || tensor.shape[3] !== 3) {
+            tensor.dispose(); // Release tensor memory if validation fails
+            throw new InputError('Input image must have a width of 224, height of 224, and 3 color channels (RGB).');
+        }
+
+        const classes = ['Cancer', 'Non-cancer'];
+
+        // Perform prediction
         const prediction = model.predict(tensor);
         const score = await prediction.data();
         const confidenceScore = Math.max(...score) * 100;
- 
+
+        // Determine the predicted class
         const classResult = tf.argMax(prediction, 1).dataSync()[0];
         const label = classes[classResult];
- 
-        let explanation, suggestion;
- 
-        if(label === 'Melanocytic nevus') {
-            explanation = "Melanocytic nevus adalah kondisi di mana permukaan kulit memiliki bercak warna yang berasal dari sel-sel melanosit, yakni pembentukan warna kulit dan rambut."
-            suggestion = "Segera konsultasi dengan dokter terdekat jika ukuran semakin membesar dengan cepat, mudah luka atau berdarah."
+
+        // Set suggestion based on prediction
+        let suggestion;
+        if (label === 'Cancer') {
+            suggestion = 'Segera periksa ke dokter!';
+        } else if (label === 'Non-cancer') {
+            suggestion = 'Penyakit kanker tidak terdeteksi.';
         }
- 
-        if(label === 'Squamous cell carcinoma') {
-            explanation = "Squamous cell carcinoma adalah jenis kanker kulit yang umum dijumpai. Penyakit ini sering tumbuh pada bagian-bagian tubuh yang sering terkena sinar UV."
-            suggestion = "Segera konsultasi dengan dokter terdekat untuk meminimalisasi penyebaran kanker."
-        }
- 
-        if(label === 'Vascular lesion') {
-            explanation = "Vascular lesion adalah penyakit yang dikategorikan sebagai kanker atau tumor di mana penyakit ini sering muncul pada bagian kepala dan leher."
-            suggestion = "Segera konsultasi dengan dokter terdekat untuk mengetahui detail terkait tingkat bahaya penyakit."
-        
-        }
- 
-        return { confidenceScore, label, explanation, suggestion };
+
+        // Clean up tensor resources
+        tensor.dispose();
+        prediction.dispose();
+
+        // Return prediction result
+        return { confidenceScore, label, suggestion };
     } catch (error) {
-        throw new InputError(`Terjadi kesalahan input: ${error.message}`)
+        throw new InputError(`Terjadi kesalahan input: ${error.message}`);
     }
 }
- 
+
 module.exports = predictClassification;

@@ -7,40 +7,67 @@ const InputError = require('../exceptions/InputError');
 
 (async () => {
     const server = Hapi.server({
-        port:3000,
-        host:'0.0.0.0',
-        routes:{
-            cors:{
-                origin:['*'],
+        port: 3000,
+        host: '0.0.0.0',
+        routes: {
+            cors: {
+                origin: ['*'],
+            },
+            payload: {
+                maxBytes: 1000000, // Set maximum payload size to 1MB
             },
         },
     });
 
     const model = await loadModel();
     server.app.model = model;
-    
+
     server.route(routes);
 
     server.ext('onPreResponse', function (request, h) {
         const response = request.response;
 
-        if(response instanceof InputError) {
+        // Handle payload size error (413)
+        if (response.output && response.output.statusCode === 413) {
             const newResponse = h.response({
                 status: 'fail',
-                message: `${response.message} Silakan gunakan foto lain.`
-            })
-            newResponse.code(response.statusCode)
+                message: 'Payload content length greater than maximum allowed: 1000000'
+            });
+            newResponse.code(413);
             return newResponse;
         }
 
+        // Handle InputError
+        if (response instanceof InputError) {
+            const newResponse = h.response({
+                status: 'fail',
+                message: `${response.message} Silakan gunakan foto lain.`
+            });
+            const statusCode = Number.isInteger(response.statusCode) ? response.statusCode : 400; // Validasi nilai
+            newResponse.code(statusCode);
+            return newResponse;
+        }
+
+        // Handle prediction errors or other Boom errors (400)
         if (response.isBoom) {
+            const statusCode = response.output.statusCode;
+            if (statusCode === 400) {
+                const newResponse = h.response({
+                    status: 'fail',
+                    message: 'Terjadi kesalahan dalam melakukan prediksi'
+                });
+                newResponse.code(400);
+                return newResponse;
+            }
+
             const newResponse = h.response({
                 status: 'fail',
                 message: response.message
-            })
-            newResponse.code(response.statusCode)
+            });
+            newResponse.code(statusCode);
             return newResponse;
         }
+
         return h.continue;
     });
 
